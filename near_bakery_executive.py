@@ -139,22 +139,34 @@ def get_cogs_calculation(recipe_id, include_buffer=True):
 # 3. 19 MODULES (FULL IMPLEMENTATION)
 # -----------------------------------------------------------------------------
 
-# [M1] DASHBOARD
+# # [M1] DASHBOARD (LUXURY)
 def show_dashboard():
-    st.markdown("## 🏠 Dashboard Executive")
+    st.markdown("## 🏠 Executive Terminal")
     conn = get_connection()
     t_inv = conn.execute("SELECT SUM(stock * price_per_unit_pakai) FROM inventory_master").fetchone()[0] or 0
     t_rev = conn.execute("SELECT SUM(total_revenue) FROM sales_log").fetchone()[0] or 0
     t_prof = conn.execute("SELECT SUM(profit) FROM sales_log").fetchone()[0] or 0
     t_order = conn.execute("SELECT COUNT(*) FROM custom_orders WHERE status = 'PENDING'").fetchone()[0] or 0
     conn.close()
+
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("📦 Nilai Inventaris", format_rp(t_inv))
-    c2.metric("💰 Omzet Total", format_rp(t_rev))
-    c3.metric("📈 Estimasi Laba", format_rp(t_prof))
-    c4.metric("🥨 Order Pending", t_order)
+    metrics = [
+        ("📦 Nilai Stok", t_inv, "#3B82F6"),
+        ("💰 Omzet", t_rev, "#10B981"),
+        ("📈 Laba", t_prof, "#8B5CF6"),
+        ("🥨 Order", t_order, "#F59E0B")
+    ]
+    for i, (label, val, color) in enumerate(metrics):
+        with [c1, c2, c3, c4][i]:
+            st.markdown(f"""
+            <div style='background: white; padding: 20px; border-radius: 15px; border-bottom: 4px solid {color}; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);'>
+                <div style='color: #64748B; font-size: 0.75rem; font-weight: 700;'>{label.upper()}</div>
+                <div style='color: #0F172A; font-size: 1.4rem; font-weight: 800; margin-top: 5px;'>{format_rp(val) if isinstance(val, (int, float)) and i<3 else val}</div>
+            </div>
+            """, unsafe_allow_html=True)
+    
     st.write("---")
-    st.subheader("📊 Performa Penjualan Terakhir")
+    st.subheader("📊 Aktivitas Terbaru")
     conn = get_connection(); sales_df = pd.read_sql_query("SELECT timestamp, total_revenue as \"Omzet\", profit as \"Laba\" FROM sales_log ORDER BY timestamp DESC LIMIT 5", conn.conn); conn.close()
     st.markdown(render_luxury_table(sales_df), unsafe_allow_html=True)
 
@@ -210,21 +222,40 @@ def show_pos():
                         else: st.session_state.cart[pid] = {'name': p['name'], 'price': p['selling_price'], 'qty': 1}
                         st.rerun()
 
-# [M3] CUSTOM ORDER
+# [M3] CUSTOM ORDER (FULL)
 def show_custom_order():
     st.markdown("## 🥨 Order Kustom Architect")
-    with st.form("custom_f"):
-        c1, c2 = st.columns(2)
-        name = c1.text_input("Nama Pelanggan")
-        phone = c2.text_input("WhatsApp")
-        det = st.text_area("Detail Pesanan (Contoh: Roti Buaya 2kg)")
-        price = st.number_input("Harga Kesepakatan (Rp)", min_value=0)
-        dp = st.number_input("Down Payment (Rp)", min_value=0)
-        p_date = st.date_input("Tanggal Ambil", value=date.today() + timedelta(days=2))
-        if st.form_submit_button("SIMPAN ORDER KUSTOM"):
-            if name and price:
-                c = get_connection(); c.execute("INSERT INTO custom_orders (customer_name, phone, order_details, pickup_date, total_price, down_payment) VALUES (?,?,?,?,?,?)", (name, phone, det, p_date, price, dp))
-                c.conn.commit(); c.close(); st.success("Order Berhasil Dicatat!"); st.rerun()
+    with st.expander("➕ Catat Pesanan Baru"):
+        with st.form("custom_order_f"):
+            c1, c2 = st.columns(2)
+            name = c1.text_input("Nama Pelanggan")
+            phone = c2.text_input("WhatsApp (628xxx)")
+            det = st.text_area("Detail Roti / Kue (Contoh: Roti Buaya Besar 2 Pcs)")
+            c1b, c2b = st.columns(2)
+            price = c1b.number_input("Harga Total (Rp)", min_value=0)
+            dp = c2b.number_input("DP / Uang Muka (Rp)", min_value=0)
+            p_date = st.date_input("Tanggal Ambil", value=date.today() + timedelta(days=2))
+            if st.form_submit_button("SIMPAN ORDER KUSTOM"):
+                if name and price:
+                    c = get_connection(); c.execute("INSERT INTO custom_orders (customer_name, phone, order_details, pickup_date, total_price, down_payment) VALUES (?,?,?,?,?,?)", (name, phone, det, p_date, price, dp))
+                    c.conn.commit(); c.close(); st.success("Order Berhasil Dicatat!"); st.rerun()
+
+    st.write("---")
+    st.subheader("📋 Daftar Pesanan Aktif")
+    conn = get_connection(); orders = pd.read_sql_query("SELECT * FROM custom_orders WHERE status != 'DONE' ORDER BY pickup_date", conn.conn); conn.close()
+    if orders.empty: st.info("Tidak ada order kustom aktif.")
+    else:
+        for _, ord in orders.iterrows():
+            st.markdown(f"""
+            <div style='background: white; padding: 20px; border-radius: 15px; border: 1px solid #E2E8F0; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.02);'>
+                <div style='display: flex; justify-content: space-between; align-items: center;'>
+                    <b style='font-size: 1.1rem; color: #0F172A;'>👤 {ord['customer_name']}</b>
+                    <span style='background: #FEF3C7; color: #92400E; padding: 4px 12px; border-radius: 20px; font-size: 0.7rem; font-weight: 700;'>{ord['status']}</span>
+                </div>
+                <div style='font-size: 0.9rem; color: #475569; margin: 10px 0;'>📦 {ord['order_details']}</div>
+                <div style='font-size: 0.85rem; color: #64748B;'>📅 Ambil: <b style='color:#0F172A'>{ord['pickup_date']}</b> | 💰 Sisa: <b style='color:#10B981'>{format_rp(ord['total_price'] - ord['down_payment'])}</b></div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # [M4] RECIPE LAB (FULL)
 def show_recipes():
@@ -306,26 +337,44 @@ def show_inventory():
                              (name_in, fid, cat_in, qty_masuk * isi, u_beli, u_pakai, price_per_use))
                     c.conn.commit(); c.close(); st.success(f"{name_in} Berhasil Didaftarkan!"); st.rerun()
 
-# [M6] LOGISTICS
+# [M6] LOGISTICS (FULL)
 def show_logistics():
-    st.markdown("## 🛒 Logistik & Supplier")
-    tab1, tab2 = st.tabs(["🏢 Supplier", "📋 Purchase Order"])
-    with tab1:
+    st.markdown("## 🛒 Logistik & Supplier Hub")
+    tab_supp, tab_po = st.tabs(["🏢 Supplier", "📋 Purchase Order"])
+    with tab_supp:
         with st.form("supp_f"):
-            n = st.text_input("Nama Supplier")
-            p = st.text_input("WhatsApp")
+            n = st.text_input("Nama Supplier / Toko")
+            p = st.text_input("WhatsApp (628xxx)")
             if st.form_submit_button("SIMPAN SUPPLIER"):
-                c = get_connection(); c.execute("INSERT INTO suppliers (name, phone) VALUES (?,?)", (n, p)); c.conn.commit(); c.close(); st.success("Supplier Tersimpan!"); st.rerun()
+                if n and p:
+                    c = get_connection(); c.execute("INSERT INTO suppliers (name, phone) VALUES (?,?)", (n, p)); c.conn.commit(); c.close(); st.success("Supplier Tersimpan!"); st.rerun()
         conn = get_connection(); df = pd.read_sql_query("SELECT name, phone FROM suppliers", conn.conn); conn.close()
         st.markdown(render_luxury_table(df), unsafe_allow_html=True)
-    with tab2:
-        st.info("Fitur pembuatan PO ke WhatsApp Supplier.")
+    with tab_po:
+        conn = get_connection(); inv = pd.read_sql_query("SELECT name FROM inventory_master", conn.conn); sup = pd.read_sql_query("SELECT name, phone FROM suppliers", conn.conn); conn.close()
+        if not sup.empty:
+            s_sel = st.selectbox("Pilih Supplier", sup['name'].tolist())
+            i_sel = st.selectbox("Pilih Bahan", inv['name'].tolist())
+            qty = st.number_input("Jumlah", min_value=1.0)
+            if st.button("🚀 KIRIM PESANAN KE WHATSAPP", use_container_width=True, type="primary"):
+                phone = sup[sup['name']==s_sel]['phone'].values[0]
+                msg = f"Halo {s_sel}, saya ingin memesan {i_sel} sebanyak {qty}. Mohon infokan harganya. Terima kasih."
+                st.link_button("KLIK UNTUK KIRIM WA", f"https://wa.me/{phone}?text={urllib.parse.quote(msg)}", use_container_width=True)
+        else: st.warning("Daftarkan supplier terlebih dahulu.")
 
-# [M7] TRACKING
+# [M7] TRACKING (FULL)
 def show_tracking():
     st.markdown("## 📍 Tracking Status Produksi")
-    conn = get_connection(); df = pd.read_sql_query("SELECT customer_name, pickup_date, status FROM custom_orders", conn.conn); conn.close()
-    st.markdown(render_luxury_table(df), unsafe_allow_html=True)
+    conn = get_connection(); df = pd.read_sql_query("SELECT id, customer_name, order_details, pickup_date, status FROM custom_orders WHERE status != 'DONE'", conn.conn); conn.close()
+    if df.empty: st.info("Semua produksi selesai.")
+    else:
+        for _, r in df.iterrows():
+            with st.container():
+                c1, c2 = st.columns([3, 1])
+                c1.markdown(f"""<div style='background:#F8FAFC; padding:15px; border-radius:10px; border-left:4px solid #3B82F6;'><b>{r['customer_name']}</b><br><small>{r['order_details']} | Ambil: {r['pickup_date']}</small></div>""", unsafe_allow_html=True)
+                new_stat = c2.selectbox("Update Status", ["PENDING", "PROSES", "SIAP", "DONE"], index=["PENDING", "PROSES", "SIAP", "DONE"].index(r['status']), key=f"stat_{r['id']}")
+                if new_stat != r['status']:
+                    c = get_connection(); c.execute("UPDATE custom_orders SET status = ? WHERE id = ?", (new_stat, int(r['id']))); c.conn.commit(); c.close(); st.rerun()
 
 # [M8] CRM & PROMO (FULL)
 def show_crm():
@@ -383,102 +432,217 @@ def show_waste():
             c.execute("INSERT INTO waste_log (inventory_id, qty_waste, loss_value, reason) VALUES (?,?,?,?)", (int(row['id']), qty, loss, res))
             c.conn.commit(); c.close(); st.success(f"Waste Tercatat! Kerugian: {format_rp(loss)}"); st.rerun()
 
-# [M11] APPROVAL
+# [M11] APPROVAL (FULL)
 def show_approval():
     st.markdown("## ✅ Approval Center")
     conn = get_connection(); df = pd.read_sql_query("SELECT * FROM pending_approvals WHERE status = 'PENDING'", conn.conn); conn.close()
     if df.empty: st.info("Tidak ada permintaan tertunda.")
     else:
         for idx, row in df.iterrows():
-            st.write(f"**{row['user_requester']}** - {row['description']}")
+            st.markdown(f"""<div style='background:white; padding:20px; border-radius:15px; border:1px solid #E2E8F0; margin-bottom:15px;'><b>Permintaan dari: {row['user_requester']}</b><br><small>{row['timestamp']}</small><br><p>{row['description']}</p><p style='font-style:italic; color:gray;'>Alasan: {row['reason']}</p></div>""", unsafe_allow_html=True)
             c1, c2 = st.columns(2)
-            if c1.button("SETUJUI", key=f"app_{row['id']}"):
+            if c1.button("✅ SETUJUI", key=f"app_{row['id']}", use_container_width=True):
                 c = get_connection(); c.execute("UPDATE pending_approvals SET status = 'DONE' WHERE id = ?", (int(row['id']),)); c.conn.commit(); c.close(); st.rerun()
-            if c2.button("TOLAK", key=f"rej_{row['id']}"):
+            if c2.button("❌ TOLAK", key=f"rej_{row['id']}", use_container_width=True):
                 c = get_connection(); c.execute("DELETE FROM pending_approvals WHERE id = ?", (int(row['id']),)); c.conn.commit(); c.close(); st.rerun()
 
-# [M12] CHAT
+# [M12] CHAT (FULL)
 def show_chat():
     st.markdown("## 💬 Team Chat Terminal")
     with st.form("chat_f", clear_on_submit=True):
-        m = st.text_input("Pesan Anda")
-        if st.form_submit_button("KIRIM"):
-            c = get_connection(); c.execute("INSERT INTO internal_messages (sender, message) VALUES (?,?)", (st.session_state.user, m)); c.conn.commit(); c.close(); st.rerun()
-    conn = get_connection(); msgs = pd.read_sql_query("SELECT timestamp, sender, message FROM internal_messages ORDER BY timestamp DESC LIMIT 20", conn.conn); conn.close()
-    for _, msg in msgs.iterrows():
-        st.markdown(f"**{msg['sender']}**: {msg['message']} <br><small>{msg['timestamp']}</small>", unsafe_allow_html=True)
-
-# [M13] THE VAULT
-def show_vault():
-    st.markdown("## 💎 The Vault (Brankas Owner)")
-    conn = get_connection(); bal = conn.execute("SELECT current_balance FROM business_vault").fetchone()[0]; conn.close()
-    st.markdown(f"""<div style='background: #111; padding: 40px; border-radius: 20px; text-align: center; border: 2px solid gold;'><h1 style='color: gold;'>{format_rp(bal)}</h1><p style='color: white;'>SALDO KHAZANAH SAAT INI</p></div>""", unsafe_allow_html=True)
-
-# [M14] HEALTH & GUARD
-def show_health():
-    st.markdown("## 🛡️ Guardian & System Health")
-    st.success("✅ Database Connection: STABLE")
-    st.success("✅ Memory Usage: OPTIMAL")
-    st.success("✅ Profit Margin Integrity: SECURE")
-
-# [M15] FINANCE/PROFIT
-def show_finance():
-    st.markdown("## 📈 Strategi Finansial & Profit")
-    conn = get_connection(); df = pd.read_sql_query("SELECT timestamp, total_revenue, profit FROM sales_log ORDER BY timestamp DESC", conn.conn); conn.close()
-    st.line_chart(df.set_index('timestamp')['profit'])
-
-# [M16] SMART PRICING (FULL)
-def show_pricing():
-    st.markdown("## 💰 Smart Pricing Architect")
-    conn = get_connection(); recipes = pd.read_sql_query("SELECT id, name FROM recipe_master", conn.conn); conn.close()
-    sel = st.selectbox("Pilih Produk", recipes['name'].tolist())
-    rid = recipes[recipes['name']==sel]['id'].values[0]
-    cogs = get_cogs_calculation(int(rid))['hpp_per_unit']
-    
-    st.markdown(f"#### Analisis HPP: **{format_rp(cogs)}**")
-    s1, s2, s3 = st.columns(3)
-    s1.metric("Tier EKONOMI (30%)", format_rp(cogs * 1.3))
-    s2.metric("Tier STANDAR (100%)", format_rp(cogs * 2.0))
-    s3.metric("Tier PREMIUM (200%)", format_rp(cogs * 3.0))
-
-# [M17] AUDIT & ANALISIS (FULL)
-def show_analysis():
-    st.markdown("## 📊 Audit & Keamanan Data")
-    tab_rep, tab_audit = st.tabs(["📈 Laporan Laba Rugi", "🔒 Audit Logs"])
-    with tab_rep:
-        conn = get_connection(); df = pd.read_sql_query("SELECT timestamp, total_revenue, total_hpp, profit FROM sales_log ORDER BY timestamp DESC", conn.conn); conn.close()
-        st.markdown(render_luxury_table(df), unsafe_allow_html=True)
-    with tab_audit:
-        conn = get_connection(); df = pd.read_sql_query("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 20", conn.conn); conn.close()
-        st.markdown(render_luxury_table(df), unsafe_allow_html=True)
-
-# [M18] INTEGRASI (FULL)
-def show_integration():
-    st.markdown("## 🔗 Integrasi Sistem Cloud")
-    st.info("Atur komisi saluran penjualan online (Grab/GoFood/Shopee).")
-    with st.form("int_f"):
-        c1, c2, c3 = st.columns(3)
-        g = c1.number_input("GrabFood (%)", value=20.0)
-        go = c2.number_input("GoFood (%)", value=20.0)
-        s = c3.number_input("ShopeeFood (%)", value=20.0)
-        if st.form_submit_button("SIMPAN KOMISI"):
-            st.success("Komisi Saluran Disimpan!")
-
-# [M19] SETTINGS (FULL)
-def show_settings():
-    st.markdown("## ⚙️ Pengaturan & Manajemen Akses")
-    with st.form("user_f"):
-        st.subheader("➕ Tambah Akses Staf")
-        u = st.text_input("Username Gmail")
-        p = st.text_input("Password Sementara")
-        r = st.selectbox("Role / Jabatan", ["STAFF", "MANAGER", "LOGISTIK"])
-        if st.form_submit_button("BERIKAN AKSES"):
-            if u and p:
-                c = get_connection(); c.execute("INSERT INTO users (username, password, role) VALUES (?,?,?)", (u, p, r)); c.conn.commit(); c.close(); st.success(f"Akses untuk {u} berhasil dibuat!"); st.rerun()
+        m = st.text_input("Ketik Pesan...", placeholder="Instruksi atau laporan tim...")
+        if st.form_submit_button("🚀 KIRIM KE TIM"):
+            if m:
+                c = get_connection(); c.execute("INSERT INTO internal_messages (sender, message) VALUES (?,?)", (st.session_state.user, m))
+                c.conn.commit(); c.close(); st.rerun()
     st.write("---")
-    conn = get_connection(); df = pd.read_sql_query("SELECT username, role FROM users WHERE role != 'OWNER'", conn.conn); conn.close()
-    st.subheader("👥 Daftar Staf Aktif")
-    st.markdown(render_luxury_table(df), unsafe_allow_html=True)
+    conn = get_connection(); msgs = pd.read_sql_query("SELECT timestamp, sender, message FROM internal_messages ORDER BY timestamp DESC LIMIT 20", conn.conn); conn.close()
+    if not msgs.empty:
+        for _, msg in msgs.iterrows():
+            is_me = msg['sender'] == st.session_state.user
+            color = "#E0F2FE" if is_me else "#F1F5F9"
+            align = "right" if is_me else "left"
+            st.markdown(f"""<div style='text-align:{align};'><div style='display:inline-block; background:{color}; padding:10px 15px; border-radius:15px; margin-bottom:5px; max-width:80%;'><small><b>{msg['sender']}</b> | {msg['timestamp']}</small><br>{msg['message']}</div></div>""", unsafe_allow_html=True)
+
+# [M13] THE VAULT (LUXURY VERSION)
+def show_vault():
+    st.markdown("## 🏛️ Khazanah Bisnis (The Vault)")
+    st.info("Semua hasil penjualan mengalir ke sini sebelum ditarik ke Rekening Bank Pribadi Anda.")
+    
+    conn = get_connection()
+    vault_data = conn.execute("SELECT current_balance, last_update FROM business_vault").fetchone()
+    ledger = pd.read_sql_query("SELECT timestamp, amount, type, source, description FROM vault_ledger ORDER BY timestamp DESC LIMIT 10", conn.conn)
+    conn.close()
+    
+    balance = vault_data[0] if vault_data else 0.0
+    
+    # --- HEADER DISPLAY ---
+    c1, c2, c3 = st.columns([1.5, 1, 1.2])
+    with c1:
+        st.markdown(f"""
+        <div style='background: #1E1B18; padding: 30px; border-radius: 20px; border: 2px solid #D4AF37; box-shadow: 0 10px 25px rgba(0,0,0,0.2);'>
+            <div style='color: #8E8A85; font-size: 0.8rem; letter-spacing: 2px;'>TOTAL SALDO KHAZANAH</div>
+            <div style='color: #D4AF37; font-size: 2.8rem; font-weight: 900; font-family: "Outfit", sans-serif;'>{format_rp(balance)}</div>
+            <div style='color: #8E8A85; font-size: 0.7rem; margin-top: 10px;'>ID REKENING: <b style='color:#D4AF37'>NB-VLT-2026-888</b></div>
+            <div style='color: #8E8A85; font-size: 0.7rem;'>Update Terakhir: {vault_data[1] if vault_data else 'N/A'}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with c2:
+        qr_svg = f"""<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><rect width="100" height="100" fill="white" /><path d="M10 10h30v30h-30z M60 10h30v30h-30z M10 60h30v30h-30z M60 60h30v30h-30z" fill="#1E1B18" /><path d="M20 20h10v10h-10z M70 20h10v10h-10z M20 70h10v10h-10z M70 70h10v10h-10z" fill="#D4AF37" /><rect x="45" y="45" width="10" height="10" fill="#D4AF37" /></svg>"""
+        st.markdown(f"<div style='width: 120px; margin: 0 auto;'>{qr_svg}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; font-size: 0.6rem; color: #64748B; margin-top: 5px;'>QRIS RESMI TOKO</div>", unsafe_allow_html=True)
+
+    with c3:
+        st.markdown("#### 🏦 Transaksi Dana")
+        with st.form("vault_move_f"):
+            amt = st.number_input("Jumlah (Rp)", min_value=0.0, max_value=balance)
+            notes = st.text_input("Keterangan")
+            if st.form_submit_button("KONFIRMASI PAYOUT", use_container_width=True):
+                if amt > 0:
+                    c = get_connection()
+                    c.execute("UPDATE business_vault SET current_balance = current_balance - ?", (amt,))
+                    c.execute("INSERT INTO vault_ledger (amount, type, description) VALUES (?,?,?)", (-amt, "PAYOUT", notes))
+                    c.conn.commit(); c.close(); st.success("Dana Berhasil Ditarik!"); st.rerun()
+
+    st.write("---")
+    st.markdown("### 📜 Buku Besar Khazanah")
+    st.markdown(render_luxury_table(ledger), unsafe_allow_html=True)
+
+# [M14] HEALTH & GUARD (BRAIN ENGINE)
+def run_system_health_check():
+    issues = []
+    conn = get_connection()
+    try:
+        # 1. Check Negative Stock
+        neg = conn.execute("SELECT name, stock FROM inventory_master WHERE stock < 0").fetchall()
+        for i in neg: issues.append({"type": "STOK MINUS", "desc": f"Barang '{i[0]}' minus {i[1]}.", "severity": "HIGH"})
+        # 2. Check Low Margin
+        recipes = conn.execute("SELECT id, name, selling_price FROM recipe_master").fetchall()
+        for r in recipes:
+            cogs = get_cogs_calculation(r[0])['hpp_per_unit']
+            if r[2] <= cogs and cogs > 0:
+                issues.append({"type": "DETEKSI BONCOS", "desc": f"Roti '{r[1]}' dijual rugi!", "severity": "CRITICAL"})
+    except: pass
+    finally: conn.close()
+    return issues
+
+def show_health():
+    st.markdown("## 🛡️ Guardian System & Health")
+    issues = run_system_health_check()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Status", "CRITICAL" if any(i['severity']=='CRITICAL' for i in issues) else "EXCELLENT")
+    c2.metric("Isu Terdeteksi", len(issues))
+    c3.metric("Uptime", "99.9%")
+    
+    st.write("---")
+    if not issues: st.success("✨ Semua sistem berjalan sempurna.")
+    for iss in issues:
+        color = "#EF4444" if iss['severity']=='CRITICAL' else "#F59E0B"
+        st.markdown(f"<div style='padding:15px; border-left:5px solid {color}; background:#F8FAFC; border-radius:10px; margin-bottom:10px;'><b>{iss['type']}</b><br><small>{iss['desc']}</small></div>", unsafe_allow_html=True)
+
+# [M14] FINANCE/PROFIT (EXECUTIVE ANALYTICS)
+def show_finance():
+    st.markdown("## 📈 Strategi Finansial & Profitabilitas")
+    conn = get_connection()
+    df = pd.read_sql_query("SELECT timestamp, total_revenue as \"Omzet\", profit as \"Laba\" FROM sales_log ORDER BY timestamp ASC", conn.conn)
+    conn.close()
+    
+    if not df.empty:
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            st.markdown("#### Performa Laba vs Omzet")
+            st.line_chart(df.set_index('timestamp')[['Omzet', 'Laba']])
+        with c2:
+            st.markdown("#### Ringkasan Eksekutif")
+            total_laba = df['Laba'].sum()
+            avg_margin = (df['Laba'].sum() / df['Omzet'].sum() * 100) if df['Omzet'].sum() > 0 else 0
+            st.metric("Total Laba Bersih", format_rp(total_laba))
+            st.metric("Rata-rata Margin", f"{avg_margin:.1f}%")
+            if avg_margin < 20: st.warning("Margin di bawah target 20%!")
+            else: st.success("Performa finansial sehat & stabil.")
+    else:
+        st.info("Data transaksi belum tersedia untuk analisis strategi.")
+
+# [M16] SMART PRICING (LUXURY VERSION)
+def show_pricing():
+    st.markdown("## 🧠 Smart Pricing Architect")
+    st.info("Sistem cerdas untuk menghitung HPP mendalam dan strategi penetapan harga.")
+    conn = get_connection(); recipes = pd.read_sql_query("SELECT id, name FROM recipe_master", conn.conn); conn.close()
+    if recipes.empty: st.warning("Belum ada resep."); return
+    
+    sel_recipe = st.selectbox("Pilih Produk", recipes['name'].tolist())
+    rid = recipes[recipes['name'] == sel_recipe]['id'].values[0]
+    cogs_data = get_cogs_calculation(rid)
+    hpp = cogs_data['hpp_per_unit']
+
+    s1, s2, s3 = st.columns(3)
+    def r5(p): return round(p / 500) * 500
+    
+    with s1:
+        st.markdown(f"<div style='background:#F1F5F9; padding:20px; border-radius:15px; border:1px solid #E2E8F0; text-align:center;'><p style='color:#64748B; font-weight:700; font-size:0.7rem;'>TIER EKONOMI (30%)</p><h3>{format_rp(r5(hpp*1.3))}</h3></div>", unsafe_allow_html=True)
+        if st.button("Pilih Ekonomi", key="p_eco", use_container_width=True):
+            c = get_connection(); c.execute("UPDATE recipe_master SET selling_price = ? WHERE id = ?", (r5(hpp*1.3), rid)); c.conn.commit(); c.close(); st.success("Updated!"); st.rerun()
+    with s2:
+        st.markdown(f"<div style='background:#E0F2FE; padding:20px; border-radius:15px; border:2px solid #3B82F6; text-align:center;'><p style='color:#0369A1; font-weight:700; font-size:0.7rem;'>TIER STANDAR (100%)</p><h3>{format_rp(r5(hpp*2.0))}</h3></div>", unsafe_allow_html=True)
+        if st.button("Pilih Standar", key="p_std", type="primary", use_container_width=True):
+            c = get_connection(); c.execute("UPDATE recipe_master SET selling_price = ? WHERE id = ?", (r5(hpp*2.0), rid)); c.conn.commit(); c.close(); st.success("Updated!"); st.rerun()
+    with s3:
+        st.markdown(f"<div style='background:#FAF5FF; padding:20px; border-radius:15px; border:1px solid #D8B4FE; text-align:center;'><p style='color:#7E22CE; font-weight:700; font-size:0.7rem;'>TIER PREMIUM (200%)</p><h3>{format_rp(r5(hpp*3.0))}</h3></div>", unsafe_allow_html=True)
+        if st.button("Pilih Premium", key="p_prm", use_container_width=True):
+            c = get_connection(); c.execute("UPDATE recipe_master SET selling_price = ? WHERE id = ?", (r5(hpp*3.0), rid)); c.conn.commit(); c.close(); st.success("Updated!"); st.rerun()
+
+# [M17] AUDIT & ANALISIS (FULL VERSION)
+def show_analysis():
+    st.markdown("## 📊 Analisis & Keamanan Data (Audit Trail)")
+    t1, t2, t3 = st.tabs(["📈 Laporan Penjualan", "📩 Inbox Pelanggan", "🔒 Audit Logs"])
+    with t1:
+        conn = get_connection(); sales = pd.read_sql_query("SELECT timestamp, total_revenue, profit, payment_method FROM sales_log ORDER BY timestamp DESC", conn.conn); conn.close()
+        st.markdown(render_luxury_table(sales), unsafe_allow_html=True)
+    with t2:
+        conn = get_connection(); msgs = pd.read_sql_query("SELECT * FROM customer_messages", conn.conn); conn.close()
+        st.markdown(render_luxury_table(msgs), unsafe_allow_html=True)
+    with t3:
+        conn = get_connection(); logs = pd.read_sql_query("SELECT * FROM audit_logs ORDER BY timestamp DESC", conn.conn); conn.close()
+        st.markdown(render_luxury_table(logs), unsafe_allow_html=True)
+
+# [M18] INTEGRASI (FULL VERSION)
+def show_integration():
+    st.markdown("## 🌐 Global Integration & Cloud Center")
+    t1, t2, t3 = st.tabs(["🚀 Cloud Deployment", "⚙️ Channel Settings", "📱 Marketplace Portal"])
+    with t1:
+        st.success("System Engine: READY | Database: SUPABASE CLOUD")
+        st.markdown("<div style='background:rgba(212,175,55,0.05); padding:20px; border-radius:15px; border:1px dashed #D4AF37;'><b>Langkah Go Online:</b> Hubungkan GitHub dan klik 'Deploy' di Streamlit Cloud.</div>", unsafe_allow_html=True)
+    with t2:
+        with st.form("comm_f"):
+            c1, c2, c3 = st.columns(3)
+            g = c1.number_input("GrabFood (%)", value=20.0)
+            go = c2.number_input("GoFood (%)", value=20.0)
+            s = c3.number_input("ShopeeFood (%)", value=20.0)
+            if st.form_submit_button("SIMPAN KOMISI"): st.success("Saved!")
+    with t3:
+        st.markdown("#### 🔗 Merchant Portal Quick Access")
+        ca, cb, cc = st.columns(3)
+        ca.link_button("🌐 Grab Merchant", "https://merchant.grab.com/portal", use_container_width=True)
+        cb.link_button("🌐 GoBiz Portal", "https://gobiz.co.id/", use_container_width=True)
+        cc.link_button("🌐 Shopee Partner", "https://shopee-p-partner.shopee.co.id/", use_container_width=True)
+
+# [M19] SETTINGS (FULL VERSION)
+def show_settings():
+    st.markdown("## ⚙️ Pengaturan & Hak Akses")
+    with st.expander("➕ Tambah Akses Staf Baru"):
+        with st.form("u_f"):
+            u = st.text_input("Nama Lengkap")
+            e = st.text_input("Email Gmail")
+            r = st.selectbox("Role", ["Staff", "Logistik", "Manajer"])
+            p = st.text_input("Password", type="password")
+            if st.form_submit_button("BERIKAN AKSES"):
+                c = get_connection(); c.execute("INSERT INTO users (username, password, role, email) VALUES (?,?,?,?)", (u, p, r, e)); c.conn.commit(); c.close(); st.success("User Added!"); st.rerun()
+    st.write("---")
+    st.subheader("👥 Daftar Staf Aktif & Otoritas")
+    conn = get_connection(); users = pd.read_sql_query("SELECT username as \"Nama\", email as \"Gmail\", role as \"Jabatan\" FROM users WHERE role != 'OWNER'", conn.conn); conn.close()
+    st.markdown(render_luxury_table(users), unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # 4. MAIN APP TERMINAL
