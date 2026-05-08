@@ -50,12 +50,19 @@ class PostgresCompat:
     def execute(self, query, params=None):
         try:
             if isinstance(query, str):
-                query = query.replace('?', '%s')
                 if params:
                     if not isinstance(params, (list, tuple)): params = (params,)
-                    res = self.conn.execute(text(query), params)
+                    # Convert '?' to named params ':p0', ':p1', etc. for SQLAlchemy compatibility
+                    param_dict = {}
+                    new_query = query
+                    for i, val in enumerate(params):
+                        placeholder = f":p{i}"
+                        new_query = new_query.replace('?', placeholder, 1)
+                        param_dict[f"p{i}"] = val
+                    res = self.conn.execute(text(new_query), param_dict)
                 else:
                     res = self.conn.execute(text(query))
+                
                 self._current_result = res
                 if res.returns_rows:
                     self.description = [(col, None, None, None, None, None, None) for col in res.keys()]
@@ -64,7 +71,7 @@ class PostgresCompat:
                 return res
             return self.conn.execute(query, params)
         except Exception as e:
-            st.error(f"DB Exec Error: {e}\nQuery: {query}")
+            # st.error(f"DB Exec Error: {e}\nQuery: {query}")
             raise e
     def fetchone(self):
         if self._current_result:
