@@ -76,12 +76,14 @@ class PostgresCompat:
     def fetchone(self):
         if self._current_result:
             row = self._current_result.fetchone()
-            return row._asdict().values() if row and hasattr(row, '_asdict') else row
+            if row:
+                if hasattr(row, '_asdict'): return list(row._asdict().values())
+                return list(row)
         return None
     def fetchall(self):
         if self._current_result:
             rows = self._current_result.fetchall()
-            return [tuple(row._asdict().values()) for row in rows] if rows and hasattr(rows[0], '_asdict') else rows
+            return [tuple(row._asdict().values()) if hasattr(row, '_asdict') else tuple(row) for row in rows]
         return []
     @property
     def lastrowid(self):
@@ -203,11 +205,16 @@ def render_luxury_table(df):
 # [DASHBOARD]
 def show_dashboard():
     conn = get_connection()
-    total_inv = conn.execute("SELECT SUM(stock * price_per_unit_pakai) FROM inventory_master").fetchone()[0] or 0
-    total_rev = conn.execute("SELECT SUM(total_revenue) FROM sales_log").fetchone()[0] or 0
-    total_prof = conn.execute("SELECT SUM(profit) FROM sales_log").fetchone()[0] or 0
-    pending_orders = conn.execute("SELECT COUNT(*) FROM custom_orders WHERE status = 'PENDING'").fetchone()[0] or 0
+    res_inv = conn.execute("SELECT SUM(stock * price_per_unit_pakai) FROM inventory_master").fetchone()
+    res_rev = conn.execute("SELECT SUM(total_revenue) FROM sales_log").fetchone()
+    res_prof = conn.execute("SELECT SUM(profit) FROM sales_log").fetchone()
+    res_order = conn.execute("SELECT COUNT(*) FROM custom_orders WHERE status = 'PENDING'").fetchone()
     conn.close()
+    
+    total_inv = res_inv[0] if res_inv and res_inv[0] else 0
+    total_rev = res_rev[0] if res_rev and res_rev[0] else 0
+    total_prof = res_prof[0] if res_prof and res_prof[0] else 0
+    pending_orders = res_order[0] if res_order and res_order[0] else 0
     
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("📦 Nilai Inventaris", format_rp(total_inv))
@@ -217,7 +224,52 @@ def show_dashboard():
     
     st.write("---")
     st.subheader("📊 Analisis Penjualan & Performa")
-    # Add chart logic if needed
+
+# [CUSTOM ORDER]
+def show_custom_order():
+    st.markdown("### 🥨 Custom Order Architect")
+    if 'unified_custom' not in st.session_state: st.session_state.unified_custom = []
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        st.subheader("🛠️ Rakit Pesanan")
+        conn = get_connection(); inv = pd.read_sql_query("SELECT name, price_per_unit_pakai FROM inventory_master", conn.conn); conn.close()
+        if not inv.empty:
+            sel = st.selectbox("Pilih Bahan", inv['name'].tolist())
+            qty = st.number_input("Jumlah", min_value=0.1, value=1.0)
+            if st.button("Tambah ke Rakitan"):
+                price = inv[inv['name']==sel]['price_per_unit_pakai'].values[0] * qty
+                st.session_state.unified_custom.append({"name": sel, "cost": price, "qty": qty})
+    with c2:
+        st.subheader("📋 Ringkasan HPP")
+        total = 0
+        for i in st.session_state.unified_custom:
+            st.write(f"- {i['name']} (x{i['qty']}): {format_rp(i['cost'])}")
+            total += i['cost']
+        st.write("---")
+        st.markdown(f"### TOTAL HPP: {format_rp(total)}")
+        if st.button("SIMPAN ORDER"):
+            st.session_state.unified_custom = []; st.success("Pesanan Disimpan!"); st.rerun()
+
+# [WASTE]
+def show_waste():
+    st.markdown("### 🗑️ Manajemen Waste & Kerugian")
+    conn = get_connection(); inv = pd.read_sql_query("SELECT id, name, price_per_unit_pakai FROM inventory_master", conn.conn); conn.close()
+    if not inv.empty:
+        with st.form("waste_f"):
+            item = st.selectbox("Item Waste", inv['name'].tolist())
+            qty = st.number_input("Jumlah Waste", min_value=0.1)
+            reason = st.text_input("Alasan")
+            if st.form_submit_button("CATAT WASTE"):
+                row = inv[inv['name']==item].iloc[0]
+                loss = qty * row['price_per_unit_pakai']
+                c = get_connection(); c.execute("INSERT INTO waste_log (inventory_id, qty_waste, loss_value, reason) VALUES (?,?,?,?)", (int(row['id']), qty, loss, reason)); c.conn.commit(); c.close()
+                st.success("Waste Tercatat!"); st.rerun()
+
+# [TRACKING]
+def show_tracking():
+    st.markdown("### 📍 Tracking Status Produksi")
+    conn = get_connection(); orders = pd.read_sql_query("SELECT customer_name, pickup_date, status FROM custom_orders", conn.conn); conn.close()
+    st.markdown(render_luxury_table(orders), unsafe_allow_html=True)
 
 # [INVENTORY]
 def show_inventory():
@@ -529,7 +581,81 @@ def main():
                 st.error("Akses Ditolak: Username atau Password Salah")
         return
 
-    # Sidebar Navigation
+# [FINANCE]
+def show_finance():
+    st.markdown("### 💰 Strategi Finansial & Profit")
+    tab_profit, tab_vault, tab_budget = st.tabs(["📈 Analisis Laba/Rugi", "💎 The Vault", "📊 Alokasi Anggaran"])
+    
+    with tab_vault:
+        conn = get_connection(); balance = conn.execute("SELECT current_balance FROM business_vault").fetchone(); conn.close()
+        bal_val = balance[0] if balance else 0
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #0F172A, #1E293B); padding: 40px; border-radius: 20px; text-align: center; color: white;'>
+            <p style='margin: 0; font-size: 0.9rem; font-weight: 600; color: #94A3B8;'>SALDO BUSINESS VAULT SAAT INI</p>
+            <h1 style='margin: 10px 0; font-size: 3.5rem; color: #FACC15;'>{format_rp(bal_val)}</h1>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with tab_profit:
+        conn = get_connection()
+        sales = pd.read_sql_query("SELECT timestamp, total_revenue as \"Omzet\", profit as \"Laba\" FROM sales_log ORDER BY timestamp DESC LIMIT 10", conn.conn)
+        conn.close()
+        st.markdown("#### 10 Transaksi Terakhir")
+        st.markdown(render_luxury_table(sales), unsafe_allow_html=True)
+
+# [APPROVAL]
+def show_approval():
+    st.markdown("### ✅ Pusat Approval Eksekutif")
+    conn = get_connection()
+    pendings = pd.read_sql_query("SELECT * FROM pending_approvals WHERE status = 'PENDING'", conn.conn)
+    conn.close()
+    if pendings.empty: st.info("Tidak ada permintaan approval tertunda.")
+    else:
+        for idx, row in pendings.iterrows():
+            st.markdown(f"**Permintaan dari:** {row['user_requester']} | **Aksi:** {row['action_type']}")
+            st.write(f"Alasan: {row['reason']}")
+            c1, c2 = st.columns(2)
+            if c1.button("SETUJUI", key=f"app_{row['id']}"):
+                c = get_connection(); c.execute("UPDATE pending_approvals SET status = 'APPROVED' WHERE id = ?", (int(row['id']),)); c.conn.commit(); c.close(); st.success("Disetujui!"); st.rerun()
+            if c2.button("TOLAK", key=f"rej_{row['id']}"):
+                c = get_connection(); c.execute("UPDATE pending_approvals SET status = 'REJECTED' WHERE id = ?", (int(row['id']),)); c.conn.commit(); c.close(); st.error("Ditolak!"); st.rerun()
+            st.write("---")
+
+# -----------------------------------------------------------------------------
+# 4. MAIN NAVIGATION & UI
+# -----------------------------------------------------------------------------
+def main():
+    init_db()
+    st.set_page_config(page_title="Near Bakery & Co.", layout="wide")
+    
+    # CSS MASTER
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;800&family=Inter:wght@400;700&display=swap');
+    html, body, [data-testid="stAppViewContainer"] { font-family: 'Inter', sans-serif; background-color: #F8FAFC !important; }
+    h1, h2, h3 { font-family: 'Outfit', sans-serif !important; color: #0F172A !important; }
+    [data-testid="stSidebar"] { background-color: #0F172A !important; }
+    [data-testid="stSidebar"] .stButton button { background: transparent !important; color: #94A3B8 !important; border: none !important; text-align: left !important; font-weight: 600 !important; padding-left: 15px !important; }
+    [data-testid="stSidebar"] .stButton button:hover { color: white !important; background: rgba(255,255,255,0.05) !important; }
+    .stButton>button { border-radius: 8px !important; font-weight: 700 !important; }
+    </small> div[style*='color: #64748B'] { color: #64748B !important; font-size: 0.65rem !important; font-weight: 800 !important; margin: 15px 0 5px 15px !important; letter-spacing: 1px !important; }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    if 'auth' not in st.session_state: st.session_state.auth = False
+    if not st.session_state.auth:
+        st.markdown("<h1 style='text-align: center;'>NEAR BAKERY & CO. LOGIN</h1>", unsafe_allow_html=True)
+        u = st.text_input("Username", key="login_u"); p = st.text_input("Password", type="password", key="login_p")
+        if st.button("LOGIN", use_container_width=True, type="primary"):
+            conn = get_connection(); user_data = conn.execute("SELECT username, role, permissions FROM users WHERE username=? AND password=?", (u, p)).fetchone(); conn.close()
+            if user_data:
+                st.session_state.auth = True; st.session_state.user = user_data[0]; st.session_state.role = user_data[1]
+                st.session_state.permissions = user_data[2].split(',') if user_data[2] else []
+                st.rerun()
+            else: st.error("Akses Ditolak")
+        return
+
+    # Sidebar Navigation Full Restoration
     with st.sidebar:
         st.markdown("### 🥨 NEAR BAKERY ERP")
         nav = {
@@ -539,11 +665,16 @@ def main():
             "📦 Inventaris Pusat": "Inventory",
             "🍞 Resep & Produksi": "Recipe",
             "🛒 Logistik & PO": "Purchase",
-            "--- EKSEKUTIF ---": "SEP2",
-            "💰 Keuangan": "Finance"
+            "🥨 Order Kustom": "CustomOrder",
+            "📍 Tracking Status": "Tracking",
+            "--- ANALISIS & SDM ---": "SEP2",
+            "🗑️ Manajemen Limbah": "Waste",
+            "--- EKSEKUTIF ---": "SEP3",
+            "💰 Keuangan": "Finance",
+            "✅ Approval Center": "Approval"
         }
         for label, page in nav.items():
-            if label.startswith("---"): st.markdown(f"<small style='color:gray'>{label}</small>", unsafe_allow_html=True)
+            if label.startswith("---"): st.markdown(f"<div style='color: #64748B; font-size: 0.65rem; font-weight: 800; margin: 15px 0 5px 15px; letter-spacing: 1px;'>{label}</div>", unsafe_allow_html=True)
             elif st.button(label, use_container_width=True): st.session_state.page = page; st.rerun()
         
         st.write("---")
@@ -557,6 +688,10 @@ def main():
     elif p == 'Recipe': show_recipes()
     elif p == 'Purchase': show_purchase()
     elif p == 'Finance': show_finance()
+    elif p == 'CustomOrder': show_custom_order()
+    elif p == 'Waste': show_waste()
+    elif p == 'Tracking': show_tracking()
+    elif p == 'Approval': show_approval()
 
 if __name__ == "__main__":
     main()
