@@ -16,11 +16,46 @@ from datetime import datetime, date, timedelta
 # -----------------------------------------------------------------------------
 # 1. DATABASE ENGINE & UTILITIES (MASTER COPIED)
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# 1. DATABASE ENGINE & UTILITIES (MASTER COPIED)
+# -----------------------------------------------------------------------------
 def get_connection():
     db_paths = ["near_bakery_v5.db", "near_bakery_integrated_v3.db", "near_bakery_starline_v2.db", "near_bakery.db"]
     for path in db_paths:
         if os.path.exists(path): return sqlite3.connect(path, check_same_thread=False)
     return sqlite3.connect("near_bakery.db", check_same_thread=False)
+
+def initialize_database():
+    conn = get_connection()
+    c = conn.cursor()
+    # Create Tables if not exist
+    c.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT, password TEXT, role TEXT, email TEXT, permissions TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS inventory_master (id INTEGER PRIMARY KEY, name TEXT, barcode TEXT, category TEXT, unit_pakai TEXT, price_per_unit_pakai REAL, stock REAL)")
+    c.execute("CREATE TABLE IF NOT EXISTS recipe_master (id INTEGER PRIMARY KEY, name TEXT, yield_qty REAL, selling_price REAL, barcode TEXT, category TEXT, image_path TEXT, discount_pct INTEGER DEFAULT 0)")
+    c.execute("CREATE TABLE IF NOT EXISTS recipe_ingredients (id INTEGER PRIMARY KEY, recipe_id INTEGER, inventory_id INTEGER, qty_pakai REAL, unit TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS sales_log (id INTEGER PRIMARY KEY, total_revenue REAL, total_hpp REAL, profit REAL, payment_method TEXT, timestamp DATETIME)")
+    c.execute("CREATE TABLE IF NOT EXISTS business_vault (id INTEGER PRIMARY KEY, current_balance REAL, last_update DATETIME)")
+    c.execute("CREATE TABLE IF NOT EXISTS vault_ledger (id INTEGER PRIMARY KEY, timestamp DATETIME, amount REAL, type TEXT, source TEXT, description TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS custom_orders (id INTEGER PRIMARY KEY, customer_name TEXT, phone TEXT, order_details TEXT, pickup_date DATE, total_price REAL, down_payment REAL, notes TEXT, status TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS pending_approvals (id INTEGER PRIMARY KEY, timestamp DATETIME, user_requester TEXT, action_type TEXT, description TEXT, data_payload TEXT, reason TEXT, status TEXT DEFAULT 'PENDING')")
+    c.execute("CREATE TABLE IF NOT EXISTS internal_messages (id INTEGER PRIMARY KEY, timestamp DATETIME, sender TEXT, message TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS suppliers (id INTEGER PRIMARY KEY, name TEXT, contact_person TEXT, phone TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS purchase_order_log (id INTEGER PRIMARY KEY, timestamp DATETIME, inventory_id INTEGER, supplier_id INTEGER, qty_order REAL, unit_order TEXT, price_total REAL, status TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS audit_logs (id INTEGER PRIMARY KEY, timestamp DATETIME, user_actor TEXT, action TEXT, table_name TEXT, reason TEXT)")
+    c.execute("CREATE TABLE IF NOT EXISTS customer_messages (id INTEGER PRIMARY KEY, timestamp DATETIME, sender_name TEXT, email TEXT, message TEXT, status TEXT DEFAULT 'NEW')")
+    
+    # Check for Owner
+    res = c.execute("SELECT * FROM users WHERE role='OWNER'").fetchone()
+    if not res:
+        c.execute("INSERT INTO users (username, password, role, email) VALUES ('admin', 'nearbakery2024', 'OWNER', 'owner@nearbakery.com')")
+    
+    # Check for Vault
+    res_v = c.execute("SELECT * FROM business_vault").fetchone()
+    if not res_v:
+        c.execute("INSERT INTO business_vault (current_balance, last_update) VALUES (0, ?)", (datetime.now(),))
+        
+    conn.commit()
+    conn.close()
 
 def format_rp(value):
     return f"Rp {value:,.0f}"
@@ -123,7 +158,7 @@ def show_dashboard():
     c4.metric("🥨 Order Pending", t_order)
     st.write("---")
     st.subheader("📊 Performa Penjualan Terakhir")
-    conn = get_connection(); sales_df = pd.read_sql_query("SELECT timestamp, total_revenue as \"Omzet\", profit as \"Laba\" FROM sales_log ORDER BY timestamp DESC LIMIT 5", conn.conn); conn.close()
+    conn = get_connection(); sales_df = pd.read_sql_query("SELECT timestamp, total_revenue as \"Omzet\", profit as \"Laba\" FROM sales_log ORDER BY timestamp DESC LIMIT 5", conn); conn.close()
     st.markdown(render_luxury_table(sales_df), unsafe_allow_html=True)
 
 # [M2] POS TERMINAL (CLONED FROM pos_module.py)
@@ -150,7 +185,7 @@ def show_pos():
                 st.session_state.cart = {}; st.success("Berhasil!"); st.rerun()
     with col_menu:
         st.markdown("#### 🥨 Menu Produk")
-        conn = get_connection(); products = pd.read_sql_query("SELECT id, name, category, selling_price FROM recipe_master", conn.conn); conn.close()
+        conn = get_connection(); products = pd.read_sql_query("SELECT id, name, category, selling_price FROM recipe_master", conn); conn.close()
         if not products.empty:
             p_cols = st.columns(3)
             for idx, p in products.iterrows():
@@ -167,7 +202,7 @@ def show_inventory():
     st.markdown("## 📦 Inventaris Pusat")
     tab1, tab2 = st.tabs(["📋 Stok Material", "➕ Registrasi Material"])
     with tab1:
-        conn = get_connection(); df = pd.read_sql_query("SELECT barcode, name, stock, unit_pakai, price_per_unit_pakai FROM inventory_master", conn.conn); conn.close()
+        conn = get_connection(); df = pd.read_sql_query("SELECT barcode, name, stock, unit_pakai, price_per_unit_pakai FROM inventory_master", conn); conn.close()
         st.markdown(render_luxury_table(df), unsafe_allow_html=True)
     with tab2:
         with st.form("reg_f"):
@@ -195,7 +230,7 @@ def show_logistics():
         n = st.text_input("Nama Supplier"); p = st.text_input("WA Supplier")
         if st.form_submit_button("SIMPAN SUPPLIER"):
             c = get_connection(); c.execute("INSERT INTO suppliers (name, phone) VALUES (?,?)", (n, p)); c.commit(); c.close(); st.success("Supplier Tersimpan!"); st.rerun()
-    conn = get_connection(); df = pd.read_sql_query("SELECT name, phone FROM suppliers", conn.conn); conn.close()
+    conn = get_connection(); df = pd.read_sql_query("SELECT name, phone FROM suppliers", conn); conn.close()
     st.markdown(render_luxury_table(df), unsafe_allow_html=True)
 
 # [M6] CUSTOM ORDER (CLONED FROM custom_order_module.py)
@@ -209,7 +244,7 @@ def show_custom_order():
 # [M7] TRACKING (CLONED FROM tracking_module.py)
 def show_tracking():
     st.markdown("## 📍 Tracking Status Produksi")
-    conn = get_connection(); df = pd.read_sql_query("SELECT customer_name, order_details, status FROM custom_orders", conn.conn); conn.close()
+    conn = get_connection(); df = pd.read_sql_query("SELECT customer_name, order_details, status FROM custom_orders", conn); conn.close()
     st.markdown(render_luxury_table(df), unsafe_allow_html=True)
 
 # [M8] R&D LAB (FULL)
@@ -223,7 +258,7 @@ def show_rd():
 # [M9] WASTE (FULL)
 def show_waste():
     st.markdown("## 🗑️ Manajemen Limbah")
-    conn = get_connection(); inv = pd.read_sql_query("SELECT id, name FROM inventory_master", conn.conn); conn.close()
+    conn = get_connection(); inv = pd.read_sql_query("SELECT id, name FROM inventory_master", conn); conn.close()
     with st.form("waste_f"):
         item = st.selectbox("Pilih Barang", inv['name'].tolist()); qty = st.number_input("Jumlah Waste"); reason = st.text_input("Alasan")
         if st.form_submit_button("CATAT WASTE"):
@@ -233,7 +268,7 @@ def show_waste():
 # [M10] CRM (FULL)
 def show_crm():
     st.markdown("## 📣 CRM & Promo Architect")
-    conn = get_connection(); df = pd.read_sql_query("SELECT name, email, role FROM users WHERE role = 'Staff'", conn.conn); conn.close()
+    conn = get_connection(); df = pd.read_sql_query("SELECT name, email, role FROM users WHERE role = 'Staff'", conn); conn.close()
     st.markdown(render_luxury_table(df), unsafe_allow_html=True)
 
 # [M11] CHAT (FULL)
@@ -244,13 +279,13 @@ def show_chat():
         if st.form_submit_button("KIRIM"):
             if m:
                 c = get_connection(); c.execute("INSERT INTO internal_messages (sender, message) VALUES (?,?)", (st.session_state.user, m)); c.commit(); c.close(); st.rerun()
-    conn = get_connection(); msgs = pd.read_sql_query("SELECT timestamp, sender, message FROM internal_messages ORDER BY timestamp DESC LIMIT 10", conn.conn); conn.close()
+    conn = get_connection(); msgs = pd.read_sql_query("SELECT timestamp, sender, message FROM internal_messages ORDER BY timestamp DESC LIMIT 10", conn); conn.close()
     for _, msg in msgs.iterrows(): st.write(f"**{msg['sender']}**: {msg['message']}")
 
 # [M12] APPROVAL (FULL)
 def show_approval():
     st.markdown("## ✅ Approval Center")
-    conn = get_connection(); pending = pd.read_sql_query("SELECT id, timestamp, user_requester, action_type, description FROM pending_approvals WHERE status = 'PENDING'", conn.conn); conn.close()
+    conn = get_connection(); pending = pd.read_sql_query("SELECT id, timestamp, user_requester, action_type, description FROM pending_approvals WHERE status = 'PENDING'", conn); conn.close()
     if pending.empty: st.success("Tidak ada permintaan tertunda.")
     else:
         for _, p in pending.iterrows():
@@ -391,6 +426,7 @@ def show_settings():
 # 4. MAIN APP TERMINAL (TOTAL CLONE)
 # -----------------------------------------------------------------------------
 def main():
+    initialize_database()
     if 'auth' not in st.session_state: st.session_state.auth = False
     
     # --- LOGIN PAGE (CINEMATIC) ---
