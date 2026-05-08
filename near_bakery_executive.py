@@ -501,12 +501,25 @@ def main():
     if 'auth' not in st.session_state: st.session_state.auth = False
     
     if not st.session_state.auth:
-        st.title("NEAR BAKERY & CO. LOGIN")
-        u = st.text_input("Username"); p = st.text_input("Password", type="password")
-        if st.button("LOGIN", use_container_width=True):
-            if u == "owner" and p == "near123":
-                st.session_state.auth = True; st.session_state.user = u; st.session_state.role = "OWNER"; st.rerun()
-            else: st.error("Akses Ditolak")
+        st.markdown("<h1 style='text-align: center;'>NEAR BAKERY & CO. LOGIN</h1>", unsafe_allow_html=True)
+        u = st.text_input("Username", key="login_u")
+        p = st.text_input("Password", type="password", key="login_p")
+        if st.button("LOGIN", use_container_width=True, type="primary"):
+            conn = get_connection()
+            # Search in Database
+            user_data = conn.execute("SELECT username, role, permissions FROM users WHERE username=? AND password=?", (u, p)).fetchone()
+            conn.close()
+            
+            if user_data:
+                # user_data is (username, role, permissions)
+                st.session_state.auth = True
+                st.session_state.user = user_data[0]
+                st.session_state.role = user_data[1]
+                st.session_state.permissions = user_data[2].split(',') if user_data[2] else []
+                st.toast(f"Selamat datang, {st.session_state.user}!")
+                st.rerun()
+            else:
+                st.error("Akses Ditolak: Username atau Password Salah")
         return
 
     # Sidebar Navigation
