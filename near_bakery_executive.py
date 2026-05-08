@@ -429,7 +429,7 @@ def main():
     initialize_database()
     if 'auth' not in st.session_state: st.session_state.auth = False
     
-    # --- LOGIN PAGE (CINEMATIC) ---
+    # --- LOGIN PAGE (MATCHING ONLINE VERSION - EXECUTIVE TERMINAL) ---
     if not st.session_state.auth:
         st.markdown("""
         <style>
@@ -440,6 +440,7 @@ def main():
         }
         .stMain { background: transparent !important; }
         [data-testid="stHeader"], [data-testid="stSidebar"] { display: none !important; }
+        
         .login-box {
             background: white !important;
             padding: 50px !important;
@@ -449,19 +450,41 @@ def main():
             margin: 100px auto !important;
             text-align: center;
         }
+        .brand-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: #0F172A;
+            margin-bottom: 5px;
+        }
+        .brand-subtitle {
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: #64748B;
+            margin-bottom: 30px;
+        }
+        .stButton button {
+            background-color: #FF4B4B !important; /* Red */
+            color: white !important;
+            border: none !important;
+            padding: 12px 0 !important;
+            font-weight: 700 !important;
+            border-radius: 6px !important;
+        }
         </style>
         """, unsafe_allow_html=True)
         
         st.markdown("""
         <div class="login-box">
-            <h1 style='color:#0F172A; font-family:"Outfit"; font-weight:800;'>NEAR BAKERY & CO.</h1>
-            <p style='color:#64748B; letter-spacing:2px; font-size:0.7rem; font-weight:600; margin-bottom:30px;'>EXECUTIVE TERMINAL</p>
+            <div class="brand-title">NEAR BAKERY & CO.</div>
+            <div class="brand-subtitle">EXECUTIVE TERMINAL</div>
         """, unsafe_allow_html=True)
         
         u = st.text_input("Username", placeholder="ID User", label_visibility="collapsed")
         p = st.text_input("Password", type="password", placeholder="Access Key", label_visibility="collapsed")
         
-        if st.button("AUTHENTICATE ACCESS", use_container_width=True, type="primary"):
+        if st.button("AUTHENTICATE ACCESS", use_container_width=True):
             conn = get_connection()
             user = conn.execute("SELECT username, role FROM users WHERE username=? AND password=?", (u, p)).fetchone()
             conn.close()
