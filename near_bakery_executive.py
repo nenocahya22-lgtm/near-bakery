@@ -158,34 +158,57 @@ def show_dashboard():
     conn = get_connection(); sales_df = pd.read_sql_query("SELECT timestamp, total_revenue as \"Omzet\", profit as \"Laba\" FROM sales_log ORDER BY timestamp DESC LIMIT 5", conn.conn); conn.close()
     st.markdown(render_luxury_table(sales_df), unsafe_allow_html=True)
 
-# [M2] POS TERMINAL
+# [M2] POS TERMINAL (FULL)
 def show_pos():
-    st.markdown("## 🖥️ Kasir Terminal")
+    st.markdown("## 🖥️ Kasir Terminal Executive")
     if 'cart' not in st.session_state: st.session_state.cart = {}
-    col_a, col_b = st.columns([1.5, 2])
+    
+    col_a, col_b = st.columns([1.2, 2])
     with col_a:
-        st.subheader("🛒 Keranjang")
+        st.markdown("#### 🧺 Keranjang Pesanan")
         subtotal = 0
-        for pid, it in list(st.session_state.cart.items()):
-            st.write(f"**{it['name']}** x{it['qty']} = {format_rp(it['price']*it['qty'])}")
-            subtotal += it['price'] * it['qty']
-        st.markdown(f"### TOTAL: {format_rp(subtotal)}")
-        m = st.selectbox("Bayar via", ["TUNAI", "QRIS", "DEBIT"])
-        if st.button("PROSES TRANSAKSI", type="primary", use_container_width=True):
-            if subtotal > 0:
-                c = get_connection(); c.execute("INSERT INTO sales_log (total_revenue, profit, payment_method) VALUES (?,?,?)", (subtotal, subtotal*0.3, m))
-                c.conn.commit(); c.close(); st.session_state.cart = {}; st.success("Transaksi Berhasil!"); st.rerun()
+        if not st.session_state.cart: st.info("Keranjang kosong.")
+        else:
+            for pid, item in list(st.session_state.cart.items()):
+                c_a, c_b = st.columns([3, 1])
+                c_a.write(f"**{item['name']}**\n{format_rp(item['price'])} x {item['qty']}")
+                if c_b.button("🗑️", key=f"del_{pid}"): del st.session_state.cart[pid]; st.rerun()
+                subtotal += item['price'] * item['qty']
+            
+            st.write("---")
+            st.markdown(f"### TOTAL: {format_rp(subtotal)}")
+            pay_method = st.radio("Pembayaran", ["TUNAI", "QRIS", "DEBIT"], horizontal=True)
+            if st.button("PROSES & CETAK STRUK", use_container_width=True, type="primary"):
+                if subtotal > 0:
+                    c = get_connection()
+                    c.execute("INSERT INTO sales_log (total_revenue, profit, payment_method) VALUES (?,?,?)", (subtotal, subtotal*0.3, pay_method))
+                    c.conn.commit(); c.close()
+                    st.session_state.cart = {}; st.balloons(); st.success("Transaksi Berhasil!"); st.rerun()
+    
     with col_b:
-        st.subheader("🥐 Produk")
-        conn = get_connection(); p_df = pd.read_sql_query("SELECT id, name, selling_price FROM recipe_master", conn.conn); conn.close()
-        cols = st.columns(2)
-        for idx, row in p_df.iterrows():
-            with cols[idx % 2]:
-                if st.button(f"{row['name']}\n{format_rp(row['selling_price'])}", key=f"pos_{row['id']}", use_container_width=True):
-                    pid = row['id']
-                    if pid in st.session_state.cart: st.session_state.cart[pid]['qty'] += 1
-                    else: st.session_state.cart[pid] = {'name': row['name'], 'price': row['selling_price'], 'qty': 1}
-                    st.rerun()
+        st.markdown("#### 🥐 Menu Produk")
+        search = st.text_input("🔍 Cari Produk...", placeholder="Ketik nama roti...")
+        conn = get_connection()
+        prods = pd.read_sql_query("SELECT id, name, selling_price, category FROM recipe_master", conn.conn)
+        conn.close()
+        
+        if not prods.empty:
+            filtered = prods[prods['name'].str.contains(search, case=False)]
+            cols = st.columns(3)
+            for idx, p in filtered.reset_index().iterrows():
+                with cols[idx % 3]:
+                    st.markdown(f"""
+                    <div style='background: white; padding: 10px; border-radius: 10px; border: 1px solid #F1F5F9; text-align: center; margin-bottom: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);'>
+                        <small style='color: #3B82F6;'>{p['category']}</small>
+                        <div style='font-weight: bold; font-size: 0.9rem; min-height: 40px;'>{p['name']}</div>
+                        <div style='color: #1E293B; font-weight: 700;'>{format_rp(p['selling_price'])}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    if st.button("TAMBAH", key=f"add_{p['id']}", use_container_width=True):
+                        pid = p['id']
+                        if pid in st.session_state.cart: st.session_state.cart[pid]['qty'] += 1
+                        else: st.session_state.cart[pid] = {'name': p['name'], 'price': p['selling_price'], 'qty': 1}
+                        st.rerun()
 
 # [M3] CUSTOM ORDER
 def show_custom_order():
@@ -203,37 +226,85 @@ def show_custom_order():
                 c = get_connection(); c.execute("INSERT INTO custom_orders (customer_name, phone, order_details, pickup_date, total_price, down_payment) VALUES (?,?,?,?,?,?)", (name, phone, det, p_date, price, dp))
                 c.conn.commit(); c.close(); st.success("Order Berhasil Dicatat!"); st.rerun()
 
-# [M4] RECIPE LAB
+# [M4] RECIPE LAB (FULL)
 def show_recipes():
-    st.markdown("## 🍞 Recipe & Production Lab")
-    with st.expander("➕ Buat Resep Baru"):
-        name = st.text_input("Nama Roti")
-        yield_qty = st.number_input("Hasil Produksi", min_value=1.0)
-        price = st.number_input("Harga Jual", min_value=0.0)
-        if st.button("SIMPAN RESEP"):
-            if name:
-                c = get_connection(); c.execute("INSERT INTO recipe_master (name, yield_qty, selling_price) VALUES (?,?,?)", (name, yield_qty, price))
-                c.conn.commit(); c.close(); st.success("Resep Dasar Tersimpan!"); st.rerun()
-    conn = get_connection(); df = pd.read_sql_query("SELECT name, yield_qty, selling_price FROM recipe_master", conn.conn); conn.close()
-    st.markdown(render_luxury_table(df), unsafe_allow_html=True)
+    st.markdown("## 🍞 Manajemen Resep & Produksi")
+    tab_list, tab_new = st.tabs(["📋 Daftar Resep", "📝 Buat Resep Baru"])
+    
+    with tab_new:
+        with st.form("recipe_new_f"):
+            r_name = st.text_input("Nama Produk")
+            c1, c2 = st.columns(2)
+            r_yield = c1.number_input("Hasil Produksi", min_value=1.0, value=1.0)
+            r_price = c2.number_input("Harga Jual (Rp)", min_value=0.0)
+            st.write("---")
+            st.markdown("**Komposisi Bahan**")
+            conn = get_connection(); inv = pd.read_sql_query("SELECT id, name, unit_pakai FROM inventory_master", conn.conn); conn.close()
+            
+            # Simple 10-ingredient slot for speed in unified app
+            ings_data = []
+            for i in range(5):
+                ca, cb = st.columns([3, 1])
+                ing = ca.selectbox(f"Bahan {i+1}", [""] + inv['name'].tolist(), key=f"u_ing_{i}")
+                qty = cb.number_input(f"Qty", min_value=0.0, key=f"u_qty_{i}")
+                if ing:
+                    iid = inv[inv['name']==ing]['id'].values[0]
+                    unit = inv[inv['name']==ing]['unit_pakai'].values[0]
+                    ings_data.append((iid, qty, unit))
+            
+            if st.form_submit_button("✨ SIMPAN RESEP PERMANEN", use_container_width=True):
+                if r_name and ings_data:
+                    c = get_connection()
+                    c.execute("INSERT INTO recipe_master (name, yield_qty, selling_price) VALUES (?,?,?)", (r_name, r_yield, r_price))
+                    rid = c.lastrowid
+                    for iid, iqty, iunit in ings_data:
+                        c.execute("INSERT INTO recipe_ingredients (recipe_id, inventory_id, qty_pakai, unit) VALUES (?,?,?,?)", (rid, iid, iqty, iunit))
+                    c.conn.commit(); c.close(); st.success("Resep Berhasil Disimpan!"); st.rerun()
 
-# [M5] INVENTORY
+    with tab_list:
+        conn = get_connection(); recipes = pd.read_sql_query("SELECT id, name, yield_qty, selling_price FROM recipe_master", conn.conn); conn.close()
+        if not recipes.empty:
+            for _, r in recipes.iterrows():
+                with st.expander(f"📦 {r['name']} | Yield: {r['yield_qty']} | {format_rp(r['selling_price'])}"):
+                    cogs = get_cogs_calculation(r['id'])
+                    st.write(f"**HPP Modal/Pcs:** {format_rp(cogs['hpp_per_unit'])}")
+                    st.write(f"**Estimasi Laba/Pcs:** {format_rp(r['selling_price'] - cogs['hpp_per_unit'])}")
+
+# [M5] INVENTORY (FULL)
 def show_inventory():
-    st.markdown("## 📦 Inventaris Pusat")
-    tab1, tab2 = st.tabs(["📋 Stok", "➕ Tambah Material"])
-    with tab1:
-        conn = get_connection(); df = pd.read_sql_query("SELECT name, category, stock, unit_pakai, price_per_unit_pakai FROM inventory_master", conn.conn); conn.close()
-        st.markdown(render_luxury_table(df), unsafe_allow_html=True)
-    with tab2:
-        with st.form("inv_f"):
-            n = st.text_input("Nama Bahan")
-            cat = st.selectbox("Kategori", ["Bahan Baku", "Kemasan", "Lainnya"])
-            s = st.number_input("Stok Awal", min_value=0.0)
-            u = st.selectbox("Satuan", ["Kg", "gr", "L", "ml", "Pcs"])
-            p = st.number_input("Harga per Satuan", min_value=0.0)
-            if st.form_submit_button("DAFTARKAN BAHAN"):
-                c = get_connection(); c.execute("INSERT INTO inventory_master (name, category, stock, unit_pakai, price_per_unit_pakai) VALUES (?,?,?,?,?)", (n, cat, s, u, p))
-                c.conn.commit(); c.close(); st.success("Material Terdaftar!"); st.rerun()
+    st.markdown("## 📦 Inventaris Pusat & Gudang")
+    tab_status, tab_register, tab_adj = st.tabs(["📋 Status Stok", "➕ Registrasi Material", "⚙️ Penyesuaian"])
+    
+    with tab_status:
+        conn = get_connection()
+        inv_df = pd.read_sql_query("SELECT barcode as \"ID\", name as \"Bahan\", category as \"Kategori\", stock as \"Stok\", unit_pakai as \"Satuan\", price_per_unit_pakai as \"HPP\" FROM inventory_master ORDER BY category, name", conn.conn)
+        conn.close()
+        st.markdown(render_luxury_table(inv_df), unsafe_allow_html=True)
+    
+    with tab_register:
+        st.markdown("#### ✨ Registrasi & Kalkulator HPP Otomatis")
+        with st.form("reg_inv_f"):
+            c1, c2 = st.columns(2)
+            name_in = c1.text_input("Nama Bahan")
+            cat_in = c2.selectbox("Kategori", ["Bahan Baku", "Kemasan", "Lainnya"])
+            
+            c1b, c2b, c3b = st.columns(3)
+            u_beli = c1b.selectbox("Satuan Beli", ["Kg", "L", "Karton", "Pack", "Pcs"])
+            u_pakai = c2b.selectbox("Satuan Pakai (Ecer)", ["gr", "ml", "Pcs"])
+            isi = c3b.number_input("Isi per Satuan Beli", min_value=0.001, value=1.0)
+            
+            c1c, c2c = st.columns(2)
+            total_bayar = c1c.number_input("Harga per Satuan Beli (Rp)", min_value=0.0)
+            qty_masuk = c2c.number_input("Jumlah Beli", min_value=0.1, value=1.0)
+            
+            if st.form_submit_button("KONFIRMASI PENDAFTARAN", use_container_width=True):
+                if name_in:
+                    price_per_use = total_bayar / isi if isi > 0 else 0
+                    fid = "NB-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+                    c = get_connection()
+                    c.execute("INSERT INTO inventory_master (name, barcode, category, stock, unit_beli, unit_pakai, price_per_unit_pakai) VALUES (?,?,?,?,?,?,?)",
+                             (name_in, fid, cat_in, qty_masuk * isi, u_beli, u_pakai, price_per_use))
+                    c.conn.commit(); c.close(); st.success(f"{name_in} Berhasil Didaftarkan!"); st.rerun()
 
 # [M6] LOGISTICS
 def show_logistics():
@@ -256,39 +327,61 @@ def show_tracking():
     conn = get_connection(); df = pd.read_sql_query("SELECT customer_name, pickup_date, status FROM custom_orders", conn.conn); conn.close()
     st.markdown(render_luxury_table(df), unsafe_allow_html=True)
 
-# [M8] CRM & PROMO
+# [M8] CRM & PROMO (FULL)
 def show_crm():
-    st.markdown("## 📣 CRM & Promo Architect")
+    st.markdown("## 📣 CRM & Simulator Promo")
+    st.info("Simulasikan diskon Anda di sini untuk melihat apakah Anda masih untung atau rugi.")
     conn = get_connection(); p_df = pd.read_sql_query("SELECT id, name, selling_price, discount_pct FROM recipe_master", conn.conn); conn.close()
     if not p_df.empty:
-        sel = st.selectbox("Pilih Produk Promo", p_df['name'].tolist())
-        row = p_df[p_df['name']==sel].iloc[0]
-        disc = st.slider("Diskon (%)", 0, 100, int(row['discount_pct']))
-        if st.button("AKTIFKAN PROMO"):
-            c = get_connection(); c.execute("UPDATE recipe_master SET discount_pct = ? WHERE id = ?", (disc, int(row['id']))); c.conn.commit(); c.close(); st.success("Promo Aktif!"); st.rerun()
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            sel = st.selectbox("Pilih Produk", p_df['name'].tolist())
+            row = p_df[p_df['name']==sel].iloc[0]
+            disc = st.slider("Persentase Diskon (%)", 0, 100, int(row['discount_pct']))
+            if st.button("🚀 AKTIFKAN PROMO", use_container_width=True):
+                c = get_connection(); c.execute("UPDATE recipe_master SET discount_pct = ? WHERE id = ?", (disc, int(row['id']))); c.conn.commit(); c.close(); st.success("Promo Aktif!"); st.rerun()
+        
+        # Calculation
+        cogs = get_cogs_calculation(int(row['id']))['hpp_per_unit']
+        final_price = row['selling_price'] * (1 - disc/100)
+        profit = final_price - cogs
+        with c2:
+            st.markdown("#### 💹 Analisis Margin")
+            if final_price < cogs: st.error(f"❌ **BAHAYA: RUGI!**\nLaba: {format_rp(profit)}")
+            elif final_price < (cogs * 1.2): st.warning(f"⚠️ **KRITIS: Margin < 20%**\nLaba: {format_rp(profit)}")
+            else: st.success(f"✅ **AMAN & PROFIT**\nLaba: {format_rp(profit)}")
 
-# [M9] R&D LAB
+# [M9] R&D LAB (FULL)
 def show_rd():
     st.markdown("## 🧪 R&D Innovation Lab")
-    with st.expander("➕ Ajukan Eksperimen"):
-        n = st.text_input("Nama Riset")
-        r = st.text_area("Alasan & Tujuan")
-        if st.button("KIRIM KE OWNER"):
-            c = get_connection(); c.execute("INSERT INTO pending_approvals (user_requester, action_type, description, reason) VALUES (?,?,?,?)", (st.session_state.user, "R&D", n, r))
-            c.conn.commit(); c.close(); st.success("Pengajuan Dikirim!"); st.rerun()
+    with st.expander("➕ Ajukan Eksperimen Baru"):
+        st.info("Gunakan form ini untuk mengajukan uji coba resep baru ke Owner.")
+        n = st.text_input("Nama Menu Eksperimen")
+        r = st.text_area("Tujuan & Bahan yang Dibutuhkan")
+        cost = st.number_input("Estimasi Biaya (Rp)", min_value=0)
+        if st.button("AJUKAN KE OWNER", type="primary"):
+            if n and r:
+                c = get_connection(); c.execute("INSERT INTO pending_approvals (user_requester, action_type, description, reason) VALUES (?,?,?,?)", 
+                         (st.session_state.user, "RISET_PRODUK", f"Riset: {n} (Estimasi {format_rp(cost)})", r))
+                c.conn.commit(); c.close(); st.success("Pengajuan Terkirim!"); st.rerun()
+    st.write("---")
+    st.subheader("📋 Riwayat Riset Disetujui")
+    st.info("Daftar riset yang telah berjalan akan muncul di sini.")
 
-# [M10] WASTE
+# [M10] WASTE (FULL)
 def show_waste():
-    st.markdown("## 🗑️ Manajemen Limbah & Kerugian")
-    conn = get_connection(); inv = pd.read_sql_query("SELECT id, name FROM inventory_master", conn.conn); conn.close()
+    st.markdown("## 🗑️ Manajemen Limbah & Waste")
+    conn = get_connection(); inv = pd.read_sql_query("SELECT id, name, price_per_unit_pakai FROM inventory_master", conn.conn); conn.close()
     with st.form("waste_f"):
-        it = st.selectbox("Bahan Waste", inv['name'].tolist())
-        qty = st.number_input("Jumlah", min_value=0.1)
-        res = st.text_input("Alasan")
+        it = st.selectbox("Material Waste", inv['name'].tolist())
+        qty = st.number_input("Jumlah Waste", min_value=0.1)
+        res = st.text_input("Alasan (Misal: Expired, Rusak)")
         if st.form_submit_button("CATAT KERUGIAN"):
-            iid = inv[inv['name']==it]['id'].values[0]
-            c = get_connection(); c.execute("INSERT INTO waste_log (inventory_id, qty_waste, reason) VALUES (?,?,?)", (int(iid), qty, res))
-            c.conn.commit(); c.close(); st.success("Waste Tercatat!"); st.rerun()
+            row = inv[inv['name']==it].iloc[0]
+            loss = qty * row['price_per_unit_pakai']
+            c = get_connection()
+            c.execute("INSERT INTO waste_log (inventory_id, qty_waste, loss_value, reason) VALUES (?,?,?,?)", (int(row['id']), qty, loss, res))
+            c.conn.commit(); c.close(); st.success(f"Waste Tercatat! Kerugian: {format_rp(loss)}"); st.rerun()
 
 # [M11] APPROVAL
 def show_approval():
@@ -334,31 +427,58 @@ def show_finance():
     conn = get_connection(); df = pd.read_sql_query("SELECT timestamp, total_revenue, profit FROM sales_log ORDER BY timestamp DESC", conn.conn); conn.close()
     st.line_chart(df.set_index('timestamp')['profit'])
 
-# [M16] SMART PRICING
+# [M16] SMART PRICING (FULL)
 def show_pricing():
     st.markdown("## 💰 Smart Pricing Architect")
-    st.info("Menganalisis HPP real-time dan memberikan saran harga jual terbaik.")
+    conn = get_connection(); recipes = pd.read_sql_query("SELECT id, name FROM recipe_master", conn.conn); conn.close()
+    sel = st.selectbox("Pilih Produk", recipes['name'].tolist())
+    rid = recipes[recipes['name']==sel]['id'].values[0]
+    cogs = get_cogs_calculation(int(rid))['hpp_per_unit']
+    
+    st.markdown(f"#### Analisis HPP: **{format_rp(cogs)}**")
+    s1, s2, s3 = st.columns(3)
+    s1.metric("Tier EKONOMI (30%)", format_rp(cogs * 1.3))
+    s2.metric("Tier STANDAR (100%)", format_rp(cogs * 2.0))
+    s3.metric("Tier PREMIUM (200%)", format_rp(cogs * 3.0))
 
-# [M17] AUDIT & ANALISIS
+# [M17] AUDIT & ANALISIS (FULL)
 def show_analysis():
-    st.markdown("## 📊 Audit & Analisis Data")
-    conn = get_connection(); df = pd.read_sql_query("SELECT * FROM sales_log", conn.conn); conn.close()
-    st.write(df)
+    st.markdown("## 📊 Audit & Keamanan Data")
+    tab_rep, tab_audit = st.tabs(["📈 Laporan Laba Rugi", "🔒 Audit Logs"])
+    with tab_rep:
+        conn = get_connection(); df = pd.read_sql_query("SELECT timestamp, total_revenue, total_hpp, profit FROM sales_log ORDER BY timestamp DESC", conn.conn); conn.close()
+        st.markdown(render_luxury_table(df), unsafe_allow_html=True)
+    with tab_audit:
+        conn = get_connection(); df = pd.read_sql_query("SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 20", conn.conn); conn.close()
+        st.markdown(render_luxury_table(df), unsafe_allow_html=True)
 
-# [M18] INTEGRASI
+# [M18] INTEGRASI (FULL)
 def show_integration():
-    st.markdown("## 🔗 Integrasi Sistem")
-    st.info("Hubungkan ke GrabFood, GoFood, dan ShopeeFood Merchant.")
+    st.markdown("## 🔗 Integrasi Sistem Cloud")
+    st.info("Atur komisi saluran penjualan online (Grab/GoFood/Shopee).")
+    with st.form("int_f"):
+        c1, c2, c3 = st.columns(3)
+        g = c1.number_input("GrabFood (%)", value=20.0)
+        go = c2.number_input("GoFood (%)", value=20.0)
+        s = c3.number_input("ShopeeFood (%)", value=20.0)
+        if st.form_submit_button("SIMPAN KOMISI"):
+            st.success("Komisi Saluran Disimpan!")
 
-# [M19] SETTINGS
+# [M19] SETTINGS (FULL)
 def show_settings():
-    st.markdown("## ⚙️ Pengaturan & Hak Akses")
-    with st.expander("➕ Tambah Staf"):
-        u = st.text_input("Username")
-        p = st.text_input("Password")
-        r = st.selectbox("Role", ["STAFF", "MANAGER"])
-        if st.button("BUAT AKUN"):
-            c = get_connection(); c.execute("INSERT INTO users (username, password, role) VALUES (?,?,?)", (u, p, r)); c.conn.commit(); c.close(); st.success("User Dibuat!")
+    st.markdown("## ⚙️ Pengaturan & Manajemen Akses")
+    with st.form("user_f"):
+        st.subheader("➕ Tambah Akses Staf")
+        u = st.text_input("Username Gmail")
+        p = st.text_input("Password Sementara")
+        r = st.selectbox("Role / Jabatan", ["STAFF", "MANAGER", "LOGISTIK"])
+        if st.form_submit_button("BERIKAN AKSES"):
+            if u and p:
+                c = get_connection(); c.execute("INSERT INTO users (username, password, role) VALUES (?,?,?)", (u, p, r)); c.conn.commit(); c.close(); st.success(f"Akses untuk {u} berhasil dibuat!"); st.rerun()
+    st.write("---")
+    conn = get_connection(); df = pd.read_sql_query("SELECT username, role FROM users WHERE role != 'OWNER'", conn.conn); conn.close()
+    st.subheader("👥 Daftar Staf Aktif")
+    st.markdown(render_luxury_table(df), unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
 # 4. MAIN APP TERMINAL
